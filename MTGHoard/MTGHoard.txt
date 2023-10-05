@@ -1,0 +1,557 @@
+﻿##---------------------------------------------------##
+## START GENERAL CONFIG
+$RootDirectory = $($env:appdata + '\MTGHoard')
+if (!(Test-Path -Path $RootDirectory)) {
+    Try {
+        New-Item -Path $RootDirectory -ItemType Directory  -ErrorAction Stop  | Out-Null
+    }
+    Catch {
+        Write-Error $_.exception.Message
+    }
+}
+$global:export = $($RootDirectory + '\Hoard_DB.csv')
+$global:iconPath = $($RootDirectory + '\HoardIcon.ico')
+$URL = 'https://api.scryfall.com/cards/named'
+
+## END GENERAL CONFIG
+##---------------------------------------------------##
+##---------------------------------------------------##
+## START FUCNTIONS
+
+#get data
+function get-data {
+    param(
+        [Parameter()]
+        [string]
+        $Name,
+        [Parameter()]
+        [string]
+        $ammount = 1
+    )
+    if (!$ammount) { $ammount = 1 }
+    $Body = @{
+        fuzzy = $name
+    }
+    
+    #no card found
+    try {
+        $CardData = Invoke-RestMethod -Method 'GET' -Uri $URL -Body $Body -ErrorAction Stop
+    
+    
+    }
+    catch {
+    
+        [System.Windows.MessageBox]::Show($_.exception.message, 'rest method error', 0, 16)
+        $Text01.Focus()
+    
+    }
+
+    #out put realavant data for card type
+     
+    $CardList = $CardData | Select ('id', 'name', 'power', 'toughness', 'mana_cost', 'type_line', 'color_identity', 'oracle_text', 'image_uri') 
+    If ($CardData.card_faces) {
+        $fc = $CardData.card_faces.Count
+        $f = 0
+       
+        foreach ($Face in $CardData.card_faces) {
+            $CardList.oracle_text += ($Face.oracle_text)
+            $f++
+            If ($f -lt $fc) { $CardList.oracle_text += ' // ' }
+        }
+    }
+
+      
+    $CardList.color_identity = ($CardList.color_identity | out-string).trim()
+        
+         
+    Add-Member -InputObject $Cardlist -MemberType NoteProperty -name quatity -Value ($ammount)  
+     
+    if ($carddata.card_faces) {
+        Try{
+            $IMURI = ($Carddata.card_faces).image_uris.large[0]
+        }Catch{
+            $IMURI = $Carddata.image_uris.large
+        }
+    }
+    else { $IMURI = $Carddata.image_uris.large }
+
+    $CardList.image_uri = $IMURI 
+     
+    Set-Variable -Name carddata -Value $CardData -Scope global 
+    Set-Variable -Name cardfound -Value $CardList -Scope global 
+    Set-Variable -Name cardfoundimage -Value ($IMURI) -Scope global 
+
+
+      
+    display
+}
+
+     
+#diffrent cards with same name 
+function search-again {
+    param(
+        [Parameter()]
+        [string]
+        $Name,
+        [Parameter()]
+        [string]
+        $ammount = 1
+    )
+    if (!$ammount) { $ammount = 1 }
+    $Body = @{
+        q = $name
+    }
+     
+    $Cardsearch = Invoke-RestMethod -Method 'GET' -Uri $URL2 -Body $Body 
+
+    #Data Scrub
+    if ($cardsearch.total_cards -gt [int32]1) {
+     
+        $cardData = $Cardsearch.data | Select ('id', 'name', 'power', 'toughness', 'mana_cost', 'type_line', 'color_identity', 'oracle_text', 'image_uri') | Out-GridView -OutputMode Single 
+     
+    }
+    else {
+        #put in an error message 
+        Break 
+
+    }
+
+    #out put realavant data for card type
+     
+    $CardList = $CardData | Select ('id', 'name', 'power', 'toughness', 'mana_cost', 'type_line', 'color_identity', 'oracle_text', 'image_uri') 
+    If ($CardData.card_faces) {
+        $fc = $CardData.card_faces.Count
+        $f = 0
+        
+        foreach ($Face in $CardData.card_faces) {
+            $CardList.oracle_text += ($Face.oracle_text)
+            $f++
+            If ($f -lt $fc) { $CardList.oracle_text += ' // ' }
+        }
+    }
+
+      
+    $CardList.color_identity = ($CardList.color_identity | out-string).trim()
+        
+         
+    Add-Member -InputObject $Cardlist -MemberType NoteProperty -name quatity -Value ($ammount)  
+     
+     
+    Set-Variable -Name carddata -Value $CardData -Scope global 
+    Set-Variable -Name cardfound -Value $CardList -Scope global 
+    if ($carddata.card_faces) {
+        if ($carddata.layout -eq "adventure") {
+            $IMURI = $Carddata.image_uris.large
+        }
+        else {
+            $IMURI = ($Carddata.card_faces).image_uris.large[0]
+        }
+    }
+    else { $IMURI = $Carddata.image_uris.large }
+    Set-Variable -Name cardfoundimage -Value ($IMURI) -Scope global 
+
+                  
+           
+    display
+    
+}
+    
+Function display {
+
+
+    $Label03.Text = $cardfound.name
+    $Label04.Text = $cardfound.mana_cost
+    $Label05.Text = $cardfound.type_line
+    $Label06.Text = $cardfound.color_identity
+    $Label07.Text = $cardfound.oracle_text
+    $Label08.Text = $('quatity' + ':' + $cardfound.quatity)
+    $Label09.Text = ('power' + ':' + $cardfound.power)
+    $Label10.Text = ('toughness' + ':' + $cardfound.toughness)
+    $pictureBox.Load($cardfoundimage)
+
+}
+
+
+#export 
+
+Function input {
+
+    #check for duplicate entry 
+
+    if ($cardfound.id -in (import-csv -Path $export ).id) {
+
+        $CardQTY = (Import-CSV -Path $Export | Where { $_.Id -like $cardfound.id }).quatity
+        [string]$cardfound.quatity = [int32]$CardQTY + [int32]$cardfound.quatity
+        $MasterDB = Import-CSV -Path $Export
+        $MasterDB | Where { $_.Id -notlike $cardfound.id } | Export-CSV -Path $Export -NoTypeInformation -Force 
+
+    }
+
+    Write-Host $cardfound
+    $cardfound | Export-Csv -Path $export -NoTypeInformation -Append -Force
+    If ($CardQTY) {
+        $Label11.Text = ('Updated' + ' ' + $cardfound.name + ' ' + 'from' + ' ' + $CardQTY + ' ' + 'to' + ' ' + $cardfound.quatity)
+    }
+    else {
+        $Label11.Text = ('Added' + ' ' + $cardfound.quatity + ' ' + $cardfound.name)
+    }
+    $CardQTY = $null
+    $Text01.text = $null
+    $Text02.text = $null
+    $Text01.Focus()
+
+}
+
+Function Edit-LastRow {
+    Param(
+        [Parameter()]
+        [Switch]
+        $Delete,
+        [Parameter()]
+        [Switch]
+        $UpdateQTY,
+        $EditqtyTextbox
+    )
+    
+    # Import the CSV file
+    $MasterDB = Import-CSV -Path $export
+
+    # Save Last Row
+    $LastRow = $MasterDB[$MasterDB.Count - 1]
+
+ 
+
+    # Update Qty (If Edit-LastRow -UpdateQTY)
+    If ($UpdateQTY) {
+        $LastRow.quatity = [int32]$EditqtyTextbox.text
+    }
+
+    # Remove Last Row
+    [System.Array]$MasterDB = $MasterDB | Where-Object { $_.Id -ne $LastRow.Id }
+
+    # Re-add updated line if '-Delete' not present
+    If (!$Delete) {
+        $MasterDB += $LastRow
+    }
+
+    # Export the updated DB to CSV
+    $MasterDB | Export-Csv -Path $export -NoTypeInformation -Force
+
+    # Update Main Form Stuff
+    If ($Delete) {
+        $Label11.Text = $('Deleted' + ' ' + $LastRow.name)
+    }
+    else {
+        $Label11.Text = $('Updated' + ' ' + $LastRow.quatity + ' ' + $LastRow.name)
+    }
+
+    $Text01.text = $null # <-- Update Edit Qty Textbox
+    $Text01.Focus() # <-- Update to Close Edit window
+
+}
+
+## END FUCNTIONS
+##---------------------------------------------------##
+##---------------------------------------------------##
+## START GUI CONFIG
+
+#Grab the required Assemblies
+Add-Type -AssemblyName PresentationCore, PresentationFramework
+Add-Type -assemblyname System.Windows.Forms
+
+
+$icon = New-Object System.Drawing.Icon($iconPath)
+
+$main_form = New-Object System.Windows.Forms.Form
+$main_form.Text = 'Hoard'
+$main_form.Icon = $icon
+$main_form.Width = 800
+$main_form.Height = 800
+$main_form.AutoSize = $true
+
+   
+  
+#name input
+$Label01 = New-Object System.Windows.Forms.Label
+$Label01.Text = $('card name')
+$Label01.Location = New-Object System.Drawing.Point(0, 40)
+$Label01.AutoSize = $true
+$main_form.Controls.Add($Label01)
+
+$Text01 = New-Object System.Windows.Forms.Textbox
+$Text01.Location = New-Object System.Drawing.Point(10, 70)
+$Text01.AutoSize = $true
+$main_form.Controls.Add($Text01)
+
+$Text01.Add_KeyDown({
+        if ($_.KeyCode -eq "Enter") {
+            # Call the 'get-data' function with the values from the text boxes
+            $Text02.Focus()
+            get-data -name $Text01.Text 
+
+        
+        
+            # Suppress the system beep sound
+            $_.SuppressKeyPress = $true
+            $_.Handled = $true
+
+        }
+    })
+
+#quatity 
+
+
+$Label02 = New-Object System.Windows.Forms.Label
+$Label02.Text = $('Quatity')
+$Label02.Location = New-Object System.Drawing.Point(0, 97)
+$Label02.AutoSize = $true
+$main_form.Controls.Add($Label02)
+
+$Text02 = New-Object System.Windows.Forms.Textbox
+$Text02.Location = New-Object System.Drawing.Point(10, 120)
+$Text02.AutoSize = $true
+
+$Text02.Add_TextChanged({
+        if ($this.Text -notmatch '^[-+]?\d*\.?\d*$') {
+            $cursorPos = $this.SelectionStart
+            $this.Text = $this.Text -replace '[^-+]?\d*\.?\d*', ''
+            $this.SelectionStart = $cursorPos - 1
+            $this.SelectionLength = 0
+        }
+    }) 
+
+$main_form.Controls.Add($Text02)
+
+
+$Text02.Add_KeyDown({
+        if ($_.KeyCode -eq "Enter") {
+            # Call the 'get-data' function with the values from the text boxes
+            get-data -name $Text01.Text -ammount $Text02.Text
+            Input
+
+            # Suppress the system beep sound
+            $_.SuppressKeyPress = $true
+            $_.Handled = $true
+        }
+    })
+
+      
+
+            
+#card display
+$Label03 = New-Object System.Windows.Forms.Label
+$Label03.Text = $('No card to display')
+$Label03.Location = New-Object System.Drawing.Point(0, 150)
+$Label03.AutoSize = $true
+$main_form.Controls.Add($Label03)
+$Label04 = New-Object System.Windows.Forms.Label
+$Label04.Text = $('')
+$Label04.Location = New-Object System.Drawing.Point(0, 170)
+$Label04.AutoSize = $true
+$main_form.Controls.Add($Label04)
+$Label05 = New-Object System.Windows.Forms.Label
+$Label05.Text = $('')
+$Label05.Location = New-Object System.Drawing.Point(0, 190)
+$Label05.AutoSize = $true
+$main_form.Controls.Add($Label05)
+$Label06 = New-Object System.Windows.Forms.Label
+$Label06.Text = $('')
+$Label06.Location = New-Object System.Drawing.Point(0, 210)
+$Label06.AutoSize = $true
+$main_form.Controls.Add($Label06)
+$Label07 = New-Object System.Windows.Forms.TextBox
+$Label07.Text = $('')
+$Label07.Font = $font
+$Label07.Location = New-Object System.Drawing.Point(0, 400)
+$Label07.Height = 200
+$Label07.Width = 200
+$Label07.WordWrap = $true
+$Label07.Multiline = $true
+$Label07.ReadOnly = $true
+$main_form.Controls.Add($Label07)
+$Label08 = New-Object System.Windows.Forms.Label
+$Label08.Text = $('')
+$Label08.Location = New-Object System.Drawing.Point(0, 290)
+$Label08.AutoSize = $true
+        
+$main_form.Controls.Add($Label08)
+$Label09 = New-Object System.Windows.Forms.Label
+$Label09.Text = $('')
+$Label09.Location = New-Object System.Drawing.Point(0, 310)
+$Label09.AutoSize = $true
+$main_form.Controls.Add($Label09)
+$Label10 = New-Object System.Windows.Forms.Label
+$Label10.Text = $('')
+$Label10.Location = New-Object System.Drawing.Point(0, 330)
+$Label10.AutoSize = $true
+$main_form.Controls.Add($Label10)
+
+$Label11 = New-Object System.Windows.Forms.Label
+$Label11.Text = $('')
+$Label11.Location = New-Object System.Drawing.Point(90, 5)
+$Label11.AutoSize = $true
+$main_form.Controls.Add($Label11)
+
+
+#Create Tools Menu
+
+$menuStrip = New-Object System.Windows.Forms.MenuStrip
+$main_form.Controls.Add($menuStrip)
+
+$fileMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+$fileMenu.Text = "Tools"
+
+
+$Button03 = New-Object System.Windows.Forms.ToolStripMenuItem
+$Button03.Text = "View Raw Data"
+$Button03.Add_Click(
+    {
+                    
+        $carddata | Out-GridView
+                    
+    }
+)
+
+$Button05 = New-Object System.Windows.Forms.ToolStripMenuItem
+$Button05.Text = "Edit Last Entry"
+$Button05.Add_Click(
+    {
+        Open-sub-form        
+                    
+    }
+)
+
+$Button04 = New-Object System.Windows.Forms.ToolStripMenuItem
+$Button04.Text = "Search Again"
+
+$Button04.Add_Click(
+    {
+                    
+        search-again -name $Text01.Text -ammount $Text02.Text
+                    
+    }
+)
+$Button06 = New-Object System.Windows.Forms.ToolStripMenuItem
+$Button06.Text = "View Data Base"
+
+$Button06.Add_Click(
+    {
+                    
+        Import-CSV -Path $export | Select-Object quatity, name, power, toughness, mana_cost, type_line, color_identity, oracle_text | Out-GridView -Title 'View Hoard'
+                    
+    }
+)
+
+
+$fileMenu.DropDownItems.Add($Button05)
+$fileMenu.DropDownItems.Add($Button04)
+$fileMenu.DropDownItems.Add($Button03)
+$fileMenu.DropDownItems.Add($Button06)
+
+
+$menuStrip.Items.Add($fileMenu)
+
+$fileMenu.DropDownItems.Add($Button05)
+$fileMenu.DropDownItems.Add($Button04)
+$fileMenu.DropDownItems.Add($Button06)
+$fileMenu.DropDownItems.Add($Button03)
+
+
+$menuStrip.Items.Add($fileMenu)
+
+
+#creat the sub form
+Function Open-sub-form {
+    Add-Type -AssemblyName PresentationCore, PresentationFramework
+    Add-Type -assemblyname System.Windows.Forms
+    $sub_form = New-Object System.Windows.Forms.Form
+    $sub_form.Text = 'Edit last entry'
+    $sub_form.Icon = $icon
+    $sub_form.Width = 400
+    $sub_form.Height = 400
+    $sub_form.AutoSize = $true
+
+    $ButtonS1 = New-Object System.Windows.Forms.Button
+    $ButtonS1.Location = New-Object System.Drawing.Size(175, 100)
+    $ButtonS1.AutoSize = $true
+    $ButtonS1.Text = "Delete Last Entry"
+    $sub_form.Controls.Add($ButtonS1)
+
+    $ButtonS1.Add_Click({
+            $result = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete the last entry?", "Confirmation", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+
+            if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+                Edit-LastRow -Delete
+                $sub_form.Close()
+                $Text01.Focus()  
+
+            }
+        })
+
+
+    
+
+
+    $ButtonS2 = New-Object System.Windows.Forms.Button
+    $ButtonS2.Location = New-Object System.Drawing.Size(175, 130)
+    $ButtonS2.AutoSize = $true
+    $ButtonS2.Text = "Update Quatity"
+    $sub_form.Controls.Add($ButtonS2)
+
+    $ButtonS2.Add_Click(
+        {
+                    
+            Edit-LastRow -UpdateQTY -EditqtyTextbox $TextS1
+            $sub_form.Close()
+            $Text01.Focus()  
+            $cardfound.quatity = $null
+        }
+    )
+
+
+
+
+    $TextS1 = New-Object System.Windows.Forms.Textbox
+    $TextS1.Location = New-Object System.Drawing.Point(10, 120)
+    $TextS1.AutoSize = $true
+
+    $TextS1.Add_TextChanged({
+            if ($this.Text -notmatch '^[-+]?\d*\.?\d*$') {
+                $cursorPos = $this.SelectionStart
+                $this.Text = $this.Text -replace '[^-+]?\d*\.?\d*', ''
+                $this.SelectionStart = $cursorPos - 1
+                $this.SelectionLength = 0
+            }
+        }) 
+
+    $sub_form.Controls.Add($TextS1)
+
+
+
+    $LabelS1 = New-Object System.Windows.Forms.Label
+    $LabelS1.Text = $('Current Quatity' + ' ' + $cardfound.quatity)
+    $LabelS1.Location = New-Object System.Drawing.Point(10, 100)
+    $LabelS1.AutoSize = $true
+    $sub_form.Controls.Add($LabelS1)
+
+
+
+    $sub_form.ShowDialog()
+}
+
+#picture
+
+$pictureBox = New-Object -TypeName System.Windows.Forms.PictureBox
+
+$pictureBox.Location = New-Object System.Drawing.Size(300, 40)
+$pictureBox.Height = 700
+$pictureBox.Width = 500
+$pictureBox.SizeMode = 'StretchImage'
+$main_form.controls.add($pictureBox)
+
+## END GUI CONFIG
+##---------------------------------------------------##
+##---------------------------------------------------##
+## SHOW MAIN FORM
+
+$main_form.ShowDialog()
